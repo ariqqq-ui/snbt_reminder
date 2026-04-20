@@ -69,17 +69,17 @@ client.on('qr', async (qr) => {
     qrImageUrl = await qrcode.toDataURL(qr);
 });
 
-client.on('ready', () => {
+client.on('ready', async () => {
     botReady = true;
     qrImageUrl = null;
     console.log('✅ Bot WhatsApp siap!');
 
-    cron.schedule('0 7 * * *', async () => {
-        const pesan = hitungHari();
-        await client.sendMessage(GROUP_ID, pesan);
-        console.log('Pesan terkirim:', pesan);
-    }, {
-        timezone: "Asia/Jakarta"
+    // SEMENTARA - untuk lihat ID grup
+    const chats = await client.getChats();
+    chats.forEach(chat => {
+        if (chat.isGroup) {
+            console.log(`Nama: ${chat.name} | ID: ${chat.id._serialized}`);
+        }
     });
 });
 
