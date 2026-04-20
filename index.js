@@ -2,18 +2,6 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const cron = require('node-cron');
 const http = require('http');
-const { execSync } = require('child_process');
-
-// Paksa hapus semua lock
-try {
-    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
-    execSync('find /app/.wwebjs_auth -name "lockfile" -delete 2>/dev/null || true');
-    execSync('pkill -f chromium 2>/dev/null || true');
-    execSync('pkill -f chrome 2>/dev/null || true');
-    console.log('Lock berhasil dibersihkan!');
-} catch(e) {
-    console.log('Proses pembersihan selesai.');
-}
 
 const GROUP_ID = '120363318529799636@g.us';
 const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
@@ -21,24 +9,6 @@ const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
 let qrImageUrl = null;
 let botReady = false;
 let cronJob = null;
-
-function buatClient() {
-    return new Client({
-        authStrategy: new LocalAuth({
-            dataPath: '/app/.wwebjs_auth'
-        }),
-        puppeteer: {
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--single-process'
-            ],
-            protocolTimeout: 60000
-        }
-    });
-}
 
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -109,7 +79,17 @@ function pesanHarian(selisih) {
 }
 
 function mulaiBot() {
-    const client = buatClient();
+    const client = new Client({
+        puppeteer: {
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
+            ],
+            protocolTimeout: 60000
+        }
+    });
 
     client.on('qr', async (qr) => {
         botReady = false;
@@ -117,17 +97,13 @@ function mulaiBot() {
         qrImageUrl = await qrcode.toDataURL(qr);
     });
 
-    client.on('ready', async () => {
+    client.on('ready', () => {
         botReady = true;
         qrImageUrl = null;
         console.log('✅ Bot WhatsApp siap!');
 
-        // Batalkan cron lama jika ada
-        if (cronJob) {
-            cronJob.stop();
-        }
+        if (cronJob) cronJob.stop();
 
-        // Kirim pesan setiap hari jam 07.00 WIB
         cronJob = cron.schedule('0 7 * * *', async () => {
             const selisih = hitungHari();
             if (selisih < 0) {
@@ -139,7 +115,7 @@ function mulaiBot() {
                 await client.sendMessage(GROUP_ID, pesan);
                 console.log('Pesan terkirim:', pesan);
             } catch(e) {
-                console.log('Gagal kirim pesan:', e.message);
+                console.log('Gagal kirim:', e.message);
             }
         }, { timezone: "Asia/Jakarta" });
     });
@@ -147,23 +123,16 @@ function mulaiBot() {
     client.on('disconnected', (reason) => {
         botReady = false;
         console.log('Bot terputus:', reason);
-        console.log('Mencoba reconnect dalam 10 detik...');
-        setTimeout(() => {
-            mulaiBot();
-        }, 10000);
-    });
-
-    client.on('auth_failure', (msg) => {
-        botReady = false;
-        console.log('Auth gagal:', msg);
+        console.log('Reconnect dalam 10 detik...');
+        setTimeout(() => mulaiBot(), 10000);
     });
 
     process.on('uncaughtException', (err) => {
-        console.log('Error tidak terduga:', err.message);
+        console.log('Error:', err.message);
     });
 
     process.on('unhandledRejection', (err) => {
-        console.log('Promise error:', err.message);
+        console.log('Promise error:', err ? err.message : err);
     });
 
     client.initialize().catch(err => {
