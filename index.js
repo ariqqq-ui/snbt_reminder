@@ -4,14 +4,22 @@ const cron = require('node-cron');
 const http = require('http');
 
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({
+        dataPath: '/app/.wwebjs_auth'  // ← path permanen untuk Volume Railway
+    }),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
     }
 });
 
+// ⬇️ Isi ID grup setelah dapat dari logs
 const GROUP_ID = 'GRUP_ID_KAMU@g.us';
-const TANGGAL_SNBT = new Date('2025-06-17');
+const TANGGAL_SNBT = new Date('2026-06-17'); // ← sesuaikan tanggal SNBT
 
 let qrImageUrl = null;
 let botReady = false;
@@ -74,12 +82,21 @@ client.on('ready', async () => {
     qrImageUrl = null;
     console.log('✅ Bot WhatsApp siap!');
 
-    // SEMENTARA - untuk lihat ID grup
+    // Tampilkan semua ID grup di logs
     const chats = await client.getChats();
     chats.forEach(chat => {
         if (chat.isGroup) {
             console.log(`Nama: ${chat.name} | ID: ${chat.id._serialized}`);
         }
+    });
+
+    // Kirim pesan setiap hari jam 07.00 WIB
+    cron.schedule('0 7 * * *', async () => {
+        const pesan = hitungHari();
+        await client.sendMessage(GROUP_ID, pesan);
+        console.log('Pesan terkirim:', pesan);
+    }, {
+        timezone: "Asia/Jakarta"
     });
 });
 
