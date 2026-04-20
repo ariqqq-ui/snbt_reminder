@@ -5,19 +5,24 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Hapus file lock Chromium yang tersisa
+// Hapus file lock Chromium
 const sessionDir = '/app/.wwebjs_auth';
 if (fs.existsSync(sessionDir)) {
     const findAndDeleteLocks = (dir) => {
-        fs.readdirSync(dir).forEach(f => {
-            const fullPath = path.join(dir, f);
-            if (fs.statSync(fullPath).isDirectory()) {
-                findAndDeleteLocks(fullPath);
-            } else if (['SingletonLock','SingletonCookie','SingletonSocket'].includes(f)) {
-                fs.unlinkSync(fullPath);
-                console.log(`Hapus lock: ${fullPath}`);
-            }
-        });
+        try {
+            fs.readdirSync(dir).forEach(f => {
+                const fullPath = path.join(dir, f);
+                try {
+                    const stat = fs.statSync(fullPath);
+                    if (stat.isDirectory()) {
+                        findAndDeleteLocks(fullPath);
+                    } else if (['SingletonLock','SingletonCookie','SingletonSocket'].includes(f)) {
+                        fs.unlinkSync(fullPath);
+                        console.log(`Hapus lock: ${fullPath}`);
+                    }
+                } catch (e) {}
+            });
+        } catch (e) {}
     };
     findAndDeleteLocks(sessionDir);
 }
@@ -36,31 +41,38 @@ const client = new Client({
     }
 });
 
-const GROUP_ID = 'GRUP_ID_KAMU@g.us'; // ← ganti nanti setelah dapat ID
-const TANGGAL_SNBT = new Date('2026-06-17'); // ← sesuaikan tanggal
+const GROUP_ID = 'GRUP_ID_KAMU@g.us'; // ← ganti nanti
+const TANGGAL_SNBT = new Date('2026-06-17'); // ← sesuaikan tanggal SNBT
 
 let qrImageUrl = null;
 let botReady = false;
 
+// Web server untuk tampilkan QR
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     if (botReady) {
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:50px">
-            <h1>✅ Bot Aktif!</h1>
-            <p>WhatsApp sudah terhubung dan bot berjalan.</p>
-        </body></html>`);
+        res.end(`
+            <html><body style="font-family:sans-serif;text-align:center;padding:50px">
+                <h1>✅ Bot Aktif!</h1>
+                <p>WhatsApp sudah terhubung dan bot berjalan.</p>
+            </body></html>
+        `);
     } else if (qrImageUrl) {
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:20px">
-            <h2>Scan QR ini dengan WhatsApp</h2>
-            <p>Buka WA → Linked Devices → Scan QR</p>
-            <img src="${qrImageUrl}" style="width:300px;height:300px"/>
-            <p><small>Refresh halaman jika QR expired</small></p>
-        </body></html>`);
+        res.end(`
+            <html><body style="font-family:sans-serif;text-align:center;padding:20px">
+                <h2>Scan QR ini dengan WhatsApp</h2>
+                <p>Buka WA → Linked Devices → Scan QR</p>
+                <img src="${qrImageUrl}" style="width:300px;height:300px"/>
+                <p><small>Refresh halaman jika QR expired</small></p>
+            </body></html>
+        `);
     } else {
-        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:50px">
-            <h2>⏳ Memuat QR...</h2>
-            <p>Tunggu beberapa detik lalu refresh halaman ini.</p>
-        </body></html>`);
+        res.end(`
+            <html><body style="font-family:sans-serif;text-align:center;padding:50px">
+                <h2>⏳ Memuat QR...</h2>
+                <p>Tunggu beberapa detik lalu refresh halaman ini.</p>
+            </body></html>
+        `);
     }
 });
 
@@ -87,7 +99,7 @@ client.on('ready', async () => {
     qrImageUrl = null;
     console.log('✅ Bot WhatsApp siap!');
 
-    // Tampilkan ID grup di logs
+    // Tampilkan ID semua grup di logs
     const chats = await client.getChats();
     chats.forEach(chat => {
         if (chat.isGroup) {
