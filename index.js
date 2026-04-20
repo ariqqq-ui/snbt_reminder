@@ -2,6 +2,58 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const cron = require('node-cron');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+// Hapus file lock Chromium yang tersisa
+const lockFiles = [
+    '/app/.wwebjs_auth/SingletonLock',
+    '/app/.wwebjs_auth/SingletonCookie',
+    '/app/.wwebjs_auth/SingletonSocket'
+];
+lockFiles.forEach(file => {
+    if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+        console.log(`Hapus lock: ${file}`);
+    }
+});
+
+// Hapus semua file lock di subfolder session
+const sessionDir = '/app/.wwebjs_auth';
+if (fs.existsSync(sessionDir)) {
+    const findAndDeleteLocks = (dir) => {
+        fs.readdirSync(dir).forEach(f => {
+            const fullPath = path.join(dir, f);
+            if (fs.statSync(fullPath).isDirectory()) {
+                findAndDeleteLocks(fullPath);
+            } else if (f === 'SingletonLock' || f === 'SingletonCookie' || f === 'SingletonSocket') {
+                fs.unlinkSync(fullPath);
+                console.log(`Hapus lock: ${fullPath}`);
+            }
+        });
+    };
+    findAndDeleteLocks(sessionDir);
+}
+
+const client = new Client({
+    authStrategy: new LocalAuth({
+        dataPath: '/app/.wwebjs_auth'
+    }),
+    puppeteer: {
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
+    }
+});
+
+// ... sisa kode sama seperti sebelumnya
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode');
+const cron = require('node-cron');
+const http = require('http');
 
 const client = new Client({
     authStrategy: new LocalAuth({
