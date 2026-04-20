@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Paksa hapus semua lock dengan command linux
+// Paksa hapus semua lock
 try {
     execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
     execSync('find /app/.wwebjs_auth -name "lockfile" -delete 2>/dev/null || true');
@@ -151,10 +151,12 @@ client.on('ready', async () => {
     }, { timezone: "Asia/Jakarta" });
 
     client.on('message', async (msg) => {
-        const chat = await msg.getChat();
-        if (chat.isGroup) {
-            console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._serialized}`);
-        }
+        try {
+            const chat = await msg.getChat();
+            if (chat.isGroup) {
+                console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._serialized}`);
+            }
+        } catch(e) {}
     });
 });
 
