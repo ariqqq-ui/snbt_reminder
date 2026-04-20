@@ -5,27 +5,25 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Hapus file lock Chromium
+// Hapus semua file lock Chromium secara agresif
 const sessionDir = '/app/.wwebjs_auth';
-if (fs.existsSync(sessionDir)) {
-    const findAndDeleteLocks = (dir) => {
-        try {
-            fs.readdirSync(dir).forEach(f => {
-                const fullPath = path.join(dir, f);
-                try {
-                    const stat = fs.statSync(fullPath);
-                    if (stat.isDirectory()) {
-                        findAndDeleteLocks(fullPath);
-                    } else if (['SingletonLock','SingletonCookie','SingletonSocket'].includes(f)) {
-                        fs.unlinkSync(fullPath);
-                        console.log(`Hapus lock: ${fullPath}`);
-                    }
-                } catch (e) {}
-            });
-        } catch (e) {}
-    };
-    findAndDeleteLocks(sessionDir);
-}
+const deleteAllLocks = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    try {
+        fs.readdirSync(dir).forEach(f => {
+            const fullPath = path.join(dir, f);
+            try {
+                if (fs.statSync(fullPath).isDirectory()) {
+                    deleteAllLocks(fullPath);
+                } else if (f.startsWith('Singleton') || f === 'lockfile') {
+                    fs.unlinkSync(fullPath);
+                    console.log(`Hapus lock: ${fullPath}`);
+                }
+            } catch(e) {}
+        });
+    } catch(e) {}
+};
+deleteAllLocks(sessionDir);
 
 const client = new Client({
     authStrategy: new LocalAuth({
@@ -41,7 +39,7 @@ const client = new Client({
     }
 });
 
-const GROUP_ID = 'GRUP_ID_KAMU@g.us'; // ← ganti nanti
+const GROUP_ID = 'GRUP_ID_KAMU@g.us'; // ← ganti setelah dapat ID grup
 const TANGGAL_SNBT = new Date('2026-06-17'); // ← sesuaikan tanggal SNBT
 
 let qrImageUrl = null;
