@@ -4,26 +4,18 @@ const cron = require('node-cron');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
-// Hapus file lock Chromium
-const sessionDir = '/app/.wwebjs_auth';
-const deleteAllLocks = (dir) => {
-    if (!fs.existsSync(dir)) return;
-    try {
-        fs.readdirSync(dir).forEach(f => {
-            const fullPath = path.join(dir, f);
-            try {
-                if (fs.statSync(fullPath).isDirectory()) {
-                    deleteAllLocks(fullPath);
-                } else if (f.startsWith('Singleton') || f === 'lockfile') {
-                    fs.unlinkSync(fullPath);
-                    console.log(`Hapus lock: ${fullPath}`);
-                }
-            } catch(e) {}
-        });
-    } catch(e) {}
-};
-deleteAllLocks(sessionDir);
+// Paksa hapus semua lock dengan command linux
+try {
+    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    execSync('find /app/.wwebjs_auth -name "lockfile" -delete 2>/dev/null || true');
+    execSync('pkill -f chromium 2>/dev/null || true');
+    execSync('pkill -f chrome 2>/dev/null || true');
+    console.log('Lock berhasil dibersihkan!');
+} catch(e) {
+    console.log('Proses pembersihan selesai.');
+}
 
 const client = new Client({
     authStrategy: new LocalAuth({
@@ -40,8 +32,8 @@ const client = new Client({
     }
 });
 
-const GROUP_ID = '120363318529799636@g.us'; // ← ganti dengan ID grup
-const TANGGAL_PENGUMUMAN = new Date('2026-05-25'); // ← ganti tanggal pengumuman hasil SNBT
+const GROUP_ID = '120363318529799636@g.us';
+const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
 
 let qrImageUrl = null;
 let botReady = false;
@@ -133,7 +125,6 @@ client.on('ready', async () => {
     qrImageUrl = null;
     console.log('✅ Bot WhatsApp siap!');
 
-    // Tunggu 10 detik agar WA selesai load
     setTimeout(async () => {
         try {
             const chats = await client.getChats();
@@ -148,26 +139,21 @@ client.on('ready', async () => {
         }
     }, 10000);
 
-    // Kirim pesan setiap hari jam 07.00 WIB
     cron.schedule('0 7 * * *', async () => {
         const selisih = hitungHari();
-
-        // Berhenti kirim jika sudah lewat hari pengumuman
         if (selisih < 0) {
-            console.log('Pengumuman SNBT sudah berlalu. Bot berhenti kirim pesan.');
+            console.log('Pengumuman sudah berlalu. Bot berhenti kirim pesan.');
             return;
         }
-
         const pesan = pesanHarian(selisih);
         await client.sendMessage(GROUP_ID, pesan);
         console.log('Pesan terkirim:', pesan);
     }, { timezone: "Asia/Jakarta" });
 
-    // Cetak ID grup saat ada pesan masuk
     client.on('message', async (msg) => {
         const chat = await msg.getChat();
         if (chat.isGroup) {
-            console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._iserialised}`);
+            console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._serialized}`);
         }
     });
 });
