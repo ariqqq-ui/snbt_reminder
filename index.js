@@ -2,8 +2,6 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const cron = require('node-cron');
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const { execSync } = require('child_process');
 
 // Paksa hapus semua lock
@@ -17,26 +15,30 @@ try {
     console.log('Proses pembersihan selesai.');
 }
 
-const client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: '/app/.wwebjs_auth'
-    }),
-    puppeteer: {
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu'
-        ],
-        protocolTimeout: 60000
-    }
-});
-
 const GROUP_ID = '120363318529799636@g.us';
 const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
 
 let qrImageUrl = null;
 let botReady = false;
+let cronJob = null;
+
+function buatClient() {
+    return new Client({
+        authStrategy: new LocalAuth({
+            dataPath: '/app/.wwebjs_auth'
+        }),
+        puppeteer: {
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--single-process'
+            ],
+            protocolTimeout: 60000
+        }
+    });
+}
 
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -73,8 +75,7 @@ server.listen(process.env.PORT || 3000, () => {
 function hitungHari() {
     const hari_ini = new Date();
     hari_ini.setHours(0, 0, 0, 0);
-    const selisih = Math.ceil((TANGGAL_PENGUMUMAN - hari_ini) / (1000 * 60 * 60 * 24));
-    return selisih;
+    return Math.ceil((TANGGAL_PENGUMUMAN - hari_ini) / (1000 * 60 * 60 * 24));
 }
 
 function pesanHarian(selisih) {
@@ -85,7 +86,6 @@ function pesanHarian(selisih) {
         `💡 *H-${selisih} lagi pengumuman!*\nNikmati waktu menunggu ini. Istirahat, jalan-jalan, atau lakukan hobi yang tertunda. Kalian sudah berjuang keras! 😊`,
         `🎯 *H-${selisih} Pengumuman Hasil SNBT!*\nUsaha sudah selesai, hasilnya tinggal ditunggu. Percaya bahwa Allah sudah menyiapkan yang terbaik! ✨`,
     ];
-
     const pesanDekat = [
         `🔥 *H-${selisih} Pengumuman SNBT!*\nSudah semakin dekat! Deg-degan itu wajar, tapi tetap positive thinking ya! 😤`,
         `⚡ *Tinggal H-${selisih} lagi pengumuman!*\nJantung mulai berdegup kencang? Itu tandanya kamu peduli dengan masa depanmu. Tetap tenang! 💨`,
@@ -93,71 +93,83 @@ function pesanHarian(selisih) {
         `😤 *H-${selisih} lagi guys!*\nSabar ya sebentar lagi! Doain satu sama lain supaya hasilnya memuaskan. Semangat! ✊`,
         `🌠 *Hampir tiba! H-${selisih} pengumuman!*\nWaktu penantian hampir usai. Tetap berdoa dan percaya diri! 🙏`,
     ];
-
     const pesanBesok = [
         `😱 *BESOK PENGUMUMAN SNBT! H-1!*\nBesok hari yang ditunggu-tunggu akhirnya tiba! Malam ini berdoa yang khusyuk dan tidur yang cukup. Semoga hasilnya membahagiakan! 🌙`,
         `🌙 *H-1 Pengumuman SNBT!*\nSatu malam lagi! Apapun hasilnya besok, ingat bahwa satu pintu tertutup berarti ada pintu lain yang terbuka. Tetap semangat! ⭐`,
     ];
-
     const pesanHariIni = [
         `🎉 *HARI INI PENGUMUMAN SNBT!*\nSaatnya cek hasil perjuangan kalian! Bismillah, semoga hasilnya sesuai harapan. Apapun hasilnya, kalian tetap luar biasa! 🏆`,
         `🌟 *PENGUMUMAN SNBT HARI INI!*\nMomen yang ditunggu-tunggu akhirnya tiba! Buka pengumuman dengan hati yang lapang. Doa kami menyertai kalian semua! 💫`,
     ];
 
-    if (selisih > 7) {
-        return pesanJauh[Math.floor(Math.random() * pesanJauh.length)];
-    } else if (selisih > 1) {
-        return pesanDekat[Math.floor(Math.random() * pesanDekat.length)];
-    } else if (selisih === 1) {
-        return pesanBesok[Math.floor(Math.random() * pesanBesok.length)];
-    } else {
-        return pesanHariIni[Math.floor(Math.random() * pesanHariIni.length)];
-    }
+    if (selisih > 7) return pesanJauh[Math.floor(Math.random() * pesanJauh.length)];
+    if (selisih > 1) return pesanDekat[Math.floor(Math.random() * pesanDekat.length)];
+    if (selisih === 1) return pesanBesok[Math.floor(Math.random() * pesanBesok.length)];
+    return pesanHariIni[Math.floor(Math.random() * pesanHariIni.length)];
 }
 
-client.on('qr', async (qr) => {
-    console.log('QR baru dibuat, buka link Railway untuk scan!');
-    qrImageUrl = await qrcode.toDataURL(qr);
-});
+function mulaiBot() {
+    const client = buatClient();
 
-client.on('ready', async () => {
-    botReady = true;
-    qrImageUrl = null;
-    console.log('✅ Bot WhatsApp siap!');
-
-    setTimeout(async () => {
-        try {
-            const chats = await client.getChats();
-            console.log(`Total chat: ${chats.length}`);
-            chats.forEach(chat => {
-                if (chat.isGroup) {
-                    console.log(`Nama: ${chat.name} | ID: ${chat.id._serialized}`);
-                }
-            });
-        } catch(e) {
-            console.log('Gagal ambil grup:', e.message);
-        }
-    }, 10000);
-
-    cron.schedule('0 7 * * *', async () => {
-        const selisih = hitungHari();
-        if (selisih < 0) {
-            console.log('Pengumuman sudah berlalu. Bot berhenti kirim pesan.');
-            return;
-        }
-        const pesan = pesanHarian(selisih);
-        await client.sendMessage(GROUP_ID, pesan);
-        console.log('Pesan terkirim:', pesan);
-    }, { timezone: "Asia/Jakarta" });
-
-    client.on('message', async (msg) => {
-        try {
-            const chat = await msg.getChat();
-            if (chat.isGroup) {
-                console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._serialized}`);
-            }
-        } catch(e) {}
+    client.on('qr', async (qr) => {
+        botReady = false;
+        console.log('QR baru dibuat, buka link Railway untuk scan!');
+        qrImageUrl = await qrcode.toDataURL(qr);
     });
-});
 
-client.initialize();
+    client.on('ready', async () => {
+        botReady = true;
+        qrImageUrl = null;
+        console.log('✅ Bot WhatsApp siap!');
+
+        // Batalkan cron lama jika ada
+        if (cronJob) {
+            cronJob.stop();
+        }
+
+        // Kirim pesan setiap hari jam 07.00 WIB
+        cronJob = cron.schedule('0 7 * * *', async () => {
+            const selisih = hitungHari();
+            if (selisih < 0) {
+                console.log('Pengumuman sudah berlalu. Bot berhenti kirim pesan.');
+                return;
+            }
+            try {
+                const pesan = pesanHarian(selisih);
+                await client.sendMessage(GROUP_ID, pesan);
+                console.log('Pesan terkirim:', pesan);
+            } catch(e) {
+                console.log('Gagal kirim pesan:', e.message);
+            }
+        }, { timezone: "Asia/Jakarta" });
+    });
+
+    client.on('disconnected', (reason) => {
+        botReady = false;
+        console.log('Bot terputus:', reason);
+        console.log('Mencoba reconnect dalam 10 detik...');
+        setTimeout(() => {
+            mulaiBot();
+        }, 10000);
+    });
+
+    client.on('auth_failure', (msg) => {
+        botReady = false;
+        console.log('Auth gagal:', msg);
+    });
+
+    process.on('uncaughtException', (err) => {
+        console.log('Error tidak terduga:', err.message);
+    });
+
+    process.on('unhandledRejection', (err) => {
+        console.log('Promise error:', err.message);
+    });
+
+    client.initialize().catch(err => {
+        console.log('Gagal initialize:', err.message);
+        setTimeout(() => mulaiBot(), 10000);
+    });
+}
+
+mulaiBot();
