@@ -5,7 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Hapus semua file lock Chromium secara agresif
+// Hapus file lock Chromium
 const sessionDir = '/app/.wwebjs_auth';
 const deleteAllLocks = (dir) => {
     if (!fs.existsSync(dir)) return;
@@ -35,17 +35,17 @@ const client = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu'
-        ]
+        ],
+        protocolTimeout: 60000
     }
 });
 
-const GROUP_ID = 'GRUP_ID_KAMU@g.us'; // ← ganti setelah dapat ID grup
-const TANGGAL_SNBT = new Date('2026-06-17'); // ← sesuaikan tanggal SNBT
+const GROUP_ID = 'GRUP_ID_KAMU@g.us';
+const TANGGAL_SNBT = new Date('2026-06-17');
 
 let qrImageUrl = null;
 let botReady = false;
 
-// Web server untuk tampilkan QR
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     if (botReady) {
@@ -97,13 +97,20 @@ client.on('ready', async () => {
     qrImageUrl = null;
     console.log('✅ Bot WhatsApp siap!');
 
-    // Tampilkan ID semua grup di logs
-    const chats = await client.getChats();
-    chats.forEach(chat => {
-        if (chat.isGroup) {
-            console.log(`Nama: ${chat.name} | ID: ${chat.id._serialized}`);
+    // Tunggu 10 detik agar WA selesai load dulu
+    setTimeout(async () => {
+        try {
+            const chats = await client.getChats();
+            console.log(`Total chat: ${chats.length}`);
+            chats.forEach(chat => {
+                if (chat.isGroup) {
+                    console.log(`Nama: ${chat.name} | ID: ${chat.id._serialized}`);
+                }
+            });
+        } catch(e) {
+            console.log('Gagal ambil grup:', e.message);
         }
-    });
+    }, 10000);
 
     // Kirim pesan setiap hari jam 07.00 WIB
     cron.schedule('0 7 * * *', async () => {
@@ -111,6 +118,14 @@ client.on('ready', async () => {
         await client.sendMessage(GROUP_ID, pesan);
         console.log('Pesan terkirim:', pesan);
     }, { timezone: "Asia/Jakarta" });
+
+    // Cetak ID grup saat ada pesan masuk di grup
+    client.on('message', async (msg) => {
+        const chat = await msg.getChat();
+        if (chat.isGroup) {
+            console.log(`Grup - Nama: ${chat.name} | ID: ${chat.id._serialized}`);
+        }
+    });
 });
 
 client.initialize();
