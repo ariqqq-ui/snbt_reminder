@@ -1,7 +1,6 @@
 FROM node:20-bullseye-slim
 
 RUN apt-get update && apt-get install -y \
-    git \
     python3 \
     make \
     g++ \
@@ -12,7 +11,8 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install --omit=dev --legacy-peer-deps
+RUN npm install --omit=dev --ignore-scripts --legacy-peer-deps && \
+    npm rebuild --legacy-peer-deps
 
 COPY . .
 
