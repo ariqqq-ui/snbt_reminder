@@ -1,45 +1,32 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode');
 const cron = require('node-cron');
 const http = require('http');
+const path = require('path');
 
 const GROUP_ID = '120363318529799636@g.us';
 const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
+const AUTH_FOLDER = path.join('/app/auth_info');
 
 let qrImageUrl = null;
 let botReady = false;
 let cronJob = null;
+let sock = null;
 
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     if (botReady) {
-        res.end(`
-            <html><body style="font-family:sans-serif;text-align:center;padding:50px">
-                <h1>✅ Bot Aktif!</h1>
-                <p>WhatsApp sudah terhubung dan bot berjalan.</p>
-            </body></html>
-        `);
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:50px"><h1>✅ Bot Aktif!</h1><p>WhatsApp sudah terhubung dan bot berjalan.</p></body></html>`);
     } else if (qrImageUrl) {
-        res.end(`
-            <html><body style="font-family:sans-serif;text-align:center;padding:20px">
-                <h2>Scan QR ini dengan WhatsApp</h2>
-                <p>Buka WA → Linked Devices → Scan QR</p>
-                <img src="${qrImageUrl}" style="width:300px;height:300px"/>
-                <p><small>Refresh halaman jika QR expired</small></p>
-            </body></html>
-        `);
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:20px"><h2>Scan QR ini dengan WhatsApp</h2><p>Buka WA → Linked Devices → Scan QR</p><img src="${qrImageUrl}" style="width:300px;height:300px"/><p><small>Refresh halaman jika QR expired</small></p></body></html>`);
     } else {
-        res.end(`
-            <html><body style="font-family:sans-serif;text-align:center;padding:50px">
-                <h2>⏳ Memuat QR...</h2>
-                <p>Tunggu beberapa detik lalu refresh halaman ini.</p>
-            </body></html>
-        `);
+        res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:50px"><h2>⏳ Memuat QR...</h2><p>Tunggu beberapa detik lalu refresh halaman ini.</p></body></html>`);
     }
 });
 
 server.listen(process.env.PORT || 3000, () => {
-    console.log('Web server aktif!');
+    console.log('Web server aktif di port', process.env.PORT || 3000);
 });
 
 function hitungHari() {
@@ -78,77 +65,72 @@ function pesanHarian(selisih) {
     return pesanHariIni[Math.floor(Math.random() * pesanHariIni.length)];
 }
 
-async function kirimPesan(client, teks) {
+async function kirimPesan(teks) {
     try {
-        await client.sendMessage(GROUP_ID, teks);
+        await sock.sendMessage(GROUP_ID, { text: teks });
         console.log('✅ Pesan terkirim:', teks);
     } catch (e) {
         console.log('❌ Gagal kirim:', e.message);
     }
 }
 
-function mulaiBot() {
-    const client = new Client({
-        authStrategy: new LocalAuth(),          // ← simpan sesi agar tidak scan ulang
-        puppeteer: {
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu'
-            ],
-            protocolTimeout: 120000             // ← naikkan ke 120 detik
+function setupCron() {
+    if (cronJob) cronJob.stop();
+    cronJob = cron.schedule('0 7 * * *', async () => {
+        const selisih = hitungHari();
+        if (selisih < 0) { console.log('Pengumuman sudah berlalu.'); return; }
+        await kirimPesan(pesanHarian(selisih));
+    }, { timezone: 'Asia/Jakarta' });
+    console.log('✅ Cron aktif, pesan dikirim setiap jam 07:00 WIB');
+}
+
+async function mulaiBot() {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
+    const { version } = await fetchLatestBaileysVersion();
+
+    sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: require('pino')({ level: 'silent' }),
+        browser: ['SNBT Reminder', 'Chrome', '1.0'],
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            botReady = false;
+            qrImageUrl = await qrcode.toDataURL(qr);
+            console.log('QR siap! Buka URL Railway untuk scan.');
         }
-    });
 
-    client.on('qr', async (qr) => {
-        botReady = false;
-        console.log('QR baru dibuat, buka link Railway untuk scan!');
-        qrImageUrl = await qrcode.toDataURL(qr);
-    });
+        if (connection === 'open') {
+            botReady = true;
+            qrImageUrl = null;
+            console.log('✅ Bot WhatsApp siap!');
+            await kirimPesan('p');
+            setupCron();
+        }
 
-    client.on('ready', async () => {
-        botReady = true;
-        qrImageUrl = null;
-        console.log('✅ Bot WhatsApp siap!');
-
-        // ── TES KIRIM PESAN "p" ──────────────────────────────────────
-        console.log('Mengirim pesan tes...');
-        await kirimPesan(client, 'p');
-        // ─────────────────────────────────────────────────────────────
-
-        if (cronJob) cronJob.stop();
-
-        cronJob = cron.schedule('0 7 * * *', async () => {
-            const selisih = hitungHari();
-            if (selisih < 0) {
-                console.log('Pengumuman sudah berlalu. Bot berhenti kirim pesan.');
-                return;
+        if (connection === 'close') {
+            botReady = false;
+            const shouldReconnect = (lastDisconnect?.error instanceof Boom)
+                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
+                : true;
+            console.log('Koneksi terputus, reconnect:', shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(() => mulaiBot(), 5000);
+            } else {
+                console.log('Logged out! Hapus folder auth_info dan scan QR ulang.');
             }
-            await kirimPesan(client, pesanHarian(selisih));
-        }, { timezone: "Asia/Jakarta" });
-    });
-
-    client.on('disconnected', (reason) => {
-        botReady = false;
-        console.log('Bot terputus:', reason);
-        console.log('Reconnect dalam 10 detik...');
-        if (cronJob) { cronJob.stop(); cronJob = null; }
-        setTimeout(() => mulaiBot(), 10000);
-    });
-
-    process.on('uncaughtException', (err) => {
-        console.log('Uncaught Error:', err.message);
-    });
-
-    process.on('unhandledRejection', (err) => {
-        console.log('Promise Error:', err ? err.message : err);
-    });
-
-    client.initialize().catch(err => {
-        console.log('Gagal initialize:', err.message);
-        setTimeout(() => mulaiBot(), 10000);
+        }
     });
 }
 
-mulaiBot();
+mulaiBot().catch(err => {
+    console.log('Error:', err.message);
+    setTimeout(() => mulaiBot(), 10000);
+});
