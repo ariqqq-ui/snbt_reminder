@@ -1,2 +1,6 @@
 [deploy]
 restartPolicyType = "always"
+ 
+[volumes]
+mountPath = "/app/auth_info"
+ 
