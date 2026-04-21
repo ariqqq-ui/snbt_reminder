@@ -78,8 +78,18 @@ function pesanHarian(selisih) {
     return pesanHariIni[Math.floor(Math.random() * pesanHariIni.length)];
 }
 
+async function kirimPesan(client, teks) {
+    try {
+        await client.sendMessage(GROUP_ID, teks);
+        console.log('✅ Pesan terkirim:', teks);
+    } catch (e) {
+        console.log('❌ Gagal kirim:', e.message);
+    }
+}
+
 function mulaiBot() {
     const client = new Client({
+        authStrategy: new LocalAuth(),          // ← simpan sesi agar tidak scan ulang
         puppeteer: {
             args: [
                 '--no-sandbox',
@@ -87,7 +97,7 @@ function mulaiBot() {
                 '--disable-dev-shm-usage',
                 '--disable-gpu'
             ],
-            protocolTimeout: 60000
+            protocolTimeout: 120000             // ← naikkan ke 120 detik
         }
     });
 
@@ -97,10 +107,15 @@ function mulaiBot() {
         qrImageUrl = await qrcode.toDataURL(qr);
     });
 
-    client.on('ready', () => {
+    client.on('ready', async () => {
         botReady = true;
         qrImageUrl = null;
         console.log('✅ Bot WhatsApp siap!');
+
+        // ── TES KIRIM PESAN "p" ──────────────────────────────────────
+        console.log('Mengirim pesan tes...');
+        await kirimPesan(client, 'p');
+        // ─────────────────────────────────────────────────────────────
 
         if (cronJob) cronJob.stop();
 
@@ -110,13 +125,7 @@ function mulaiBot() {
                 console.log('Pengumuman sudah berlalu. Bot berhenti kirim pesan.');
                 return;
             }
-            try {
-                const pesan = pesanHarian(selisih);
-                await client.sendMessage(GROUP_ID, pesan);
-                console.log('Pesan terkirim:', pesan);
-            } catch(e) {
-                console.log('Gagal kirim:', e.message);
-            }
+            await kirimPesan(client, pesanHarian(selisih));
         }, { timezone: "Asia/Jakarta" });
     });
 
@@ -124,15 +133,16 @@ function mulaiBot() {
         botReady = false;
         console.log('Bot terputus:', reason);
         console.log('Reconnect dalam 10 detik...');
+        if (cronJob) { cronJob.stop(); cronJob = null; }
         setTimeout(() => mulaiBot(), 10000);
     });
 
     process.on('uncaughtException', (err) => {
-        console.log('Error:', err.message);
+        console.log('Uncaught Error:', err.message);
     });
 
     process.on('unhandledRejection', (err) => {
-        console.log('Promise error:', err ? err.message : err);
+        console.log('Promise Error:', err ? err.message : err);
     });
 
     client.initialize().catch(err => {
