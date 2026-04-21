@@ -1,18 +1,14 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const cron = require('node-cron');
 const http = require('http');
-const path = require('path');
 
 const GROUP_ID = '120363318529799636@g.us';
 const TANGGAL_PENGUMUMAN = new Date('2026-05-25');
-const AUTH_FOLDER = path.join('/app/auth_info');
 
 let qrImageUrl = null;
 let botReady = false;
 let cronJob = null;
-let sock = null;
 
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -26,7 +22,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(process.env.PORT || 3000, () => {
-    console.log('Web server aktif di port', process.env.PORT || 3000);
+    console.log('Web server aktif!');
 });
 
 function hitungHari() {
@@ -65,72 +61,67 @@ function pesanHarian(selisih) {
     return pesanHariIni[Math.floor(Math.random() * pesanHariIni.length)];
 }
 
-async function kirimPesan(teks) {
+async function kirimPesan(client, teks) {
     try {
-        await sock.sendMessage(GROUP_ID, { text: teks });
+        await client.sendMessage(GROUP_ID, teks);
         console.log('✅ Pesan terkirim:', teks);
     } catch (e) {
         console.log('❌ Gagal kirim:', e.message);
     }
 }
 
-function setupCron() {
-    if (cronJob) cronJob.stop();
-    cronJob = cron.schedule('0 7 * * *', async () => {
-        const selisih = hitungHari();
-        if (selisih < 0) { console.log('Pengumuman sudah berlalu.'); return; }
-        await kirimPesan(pesanHarian(selisih));
-    }, { timezone: 'Asia/Jakarta' });
-    console.log('✅ Cron aktif, pesan dikirim setiap jam 07:00 WIB');
-}
-
-async function mulaiBot() {
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
-    const { version } = await fetchLatestBaileysVersion();
-
-    sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        logger: require('pino')({ level: 'silent' }),
-        browser: ['SNBT Reminder', 'Chrome', '1.0'],
+function mulaiBot() {
+    const client = new Client({
+        authStrategy: new LocalAuth({ dataPath: '/app/.wwebjs_auth' }),
+        puppeteer: {
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--single-process'
+            ],
+            protocolTimeout: 120000
+        }
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    client.on('qr', async (qr) => {
+        botReady = false;
+        console.log('QR siap, buka URL Railway untuk scan!');
+        qrImageUrl = await qrcode.toDataURL(qr);
+    });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    client.on('ready', async () => {
+        botReady = true;
+        qrImageUrl = null;
+        console.log('✅ Bot siap!');
 
-        if (qr) {
-            botReady = false;
-            qrImageUrl = await qrcode.toDataURL(qr);
-            console.log('QR siap! Buka URL Railway untuk scan.');
-        }
+        // Tes kirim
+        await kirimPesan(client, 'p');
 
-        if (connection === 'open') {
-            botReady = true;
-            qrImageUrl = null;
-            console.log('✅ Bot WhatsApp siap!');
-            await kirimPesan('p');
-            setupCron();
-        }
+        if (cronJob) cronJob.stop();
+        cronJob = cron.schedule('0 7 * * *', async () => {
+            const selisih = hitungHari();
+            if (selisih < 0) return;
+            await kirimPesan(client, pesanHarian(selisih));
+        }, { timezone: 'Asia/Jakarta' });
+    });
 
-        if (connection === 'close') {
-            botReady = false;
-            const shouldReconnect = (lastDisconnect?.error instanceof Boom)
-                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
-                : true;
-            console.log('Koneksi terputus, reconnect:', shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(() => mulaiBot(), 5000);
-            } else {
-                console.log('Logged out! Hapus folder auth_info dan scan QR ulang.');
-            }
-        }
+    client.on('disconnected', (reason) => {
+        botReady = false;
+        console.log('Terputus:', reason, '— reconnect 10 detik...');
+        if (cronJob) { cronJob.stop(); cronJob = null; }
+        setTimeout(() => mulaiBot(), 10000);
+    });
+
+    process.on('uncaughtException', (err) => console.log('Error:', err.message));
+    process.on('unhandledRejection', (err) => console.log('Promise error:', err?.message));
+
+    client.initialize().catch(err => {
+        console.log('Gagal initialize:', err.message);
+        setTimeout(() => mulaiBot(), 10000);
     });
 }
 
-mulaiBot().catch(err => {
-    console.log('Error:', err.message);
-    setTimeout(() => mulaiBot(), 10000);
-});
+mulaiBot();
